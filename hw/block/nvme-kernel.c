@@ -154,6 +154,7 @@ static bool nvme_addr_is_cmb(NvmeCtrl *n, hwaddr addr)
 
 static int vhost_dev_has_iommu(struct vhost_dev *dev)
 {
+    return false;
     VirtIODevice *vdev = dev->vdev;
 
     /*
