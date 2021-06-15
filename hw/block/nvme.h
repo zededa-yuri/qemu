@@ -61,6 +61,10 @@ typedef struct NvmeParams {
     uint32_t aer_max_queued;
     uint8_t  mdts;
     bool     use_intel_id;
+
+    /* XXX: Bellow params do not belong here. We should allocate our
+     * own struct for params */
+    char     *nqn;
 } NvmeParams;
 
 typedef struct NvmeAsyncEvent {
