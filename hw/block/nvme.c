@@ -1972,7 +1972,7 @@ void nvme_clear_ctrl(NvmeCtrl *n)
     n->bar.cc = 0;
 }
 
-static int nvme_start_ctrl(NvmeCtrl *n)
+int nvme_start_ctrl(NvmeCtrl *n)
 {
     uint32_t page_bits = NVME_CC_MPS(n->bar.cc) + 12;
     uint32_t page_size = 1 << page_bits;
