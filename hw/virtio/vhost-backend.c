@@ -87,7 +87,7 @@ static int vhost_kernel_nvme_set_endpoint(struct vhost_dev *dev,
 
 static int vhost_kernel_nvme_start_ctrl(struct vhost_dev *dev)
 {
-     return vhost_kernel_call(dev, VHOST_NVME_START_CRTL, NULL);
+     return vhost_kernel_call(dev, VHOST_NVME_START_CTRL, NULL);
 }
 
 static int vhost_kernel_nvme_clear_endpoint(struct vhost_dev *dev,
