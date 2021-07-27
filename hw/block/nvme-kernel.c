@@ -596,17 +596,9 @@ static void nvme_process_sq(void *opaque)
 static void nvme_write_bar(NvmeCtrl *n, hwaddr offset, uint64_t data,
                            unsigned size)
 {
-    const VhostOps *vhost_ops = n->dev.vhost_ops;
-    struct nvmet_vhost_bar nvmet_bar;
     hwaddr len;
     uint64_t expected_len;
-    int ret;
 
-    memset(&nvmet_bar, 0, sizeof(nvmet_bar));
-    nvmet_bar.type = VHOST_NVME_BAR_WRITE;
-    nvmet_bar.offset = offset;
-    nvmet_bar.size = size;
-    nvmet_bar.val = data;
     switch (offset) {
     case 0x14:  /* CC */
         if (!NVME_CC_EN(data) && !NVME_CC_EN(n->bar.cc) &&
@@ -682,11 +674,6 @@ static void nvme_write_bar(NvmeCtrl *n, hwaddr offset, uint64_t data,
         ;
     }
 
-
-    ret = vhost_ops->vhost_nvme_bar(&n->dev, &nvmet_bar);
-    if (ret < 0) {
-        error_report("nvme_write_bar error = %d", ret);
-    }
 }
 
 static uint64_t nvme_mmio_read(void *opaque, hwaddr addr, unsigned size)
@@ -721,8 +708,20 @@ static void nvme_mmio_write(void *opaque, hwaddr addr, uint64_t data,
                             unsigned size)
 {
     NvmeCtrl *n = (NvmeCtrl *)opaque;
+    const VhostOps *vhost_ops = n->dev.vhost_ops;
+    struct nvmet_vhost_bar nvmet_bar;
+    int ret = 0;
 
     trace_pci_nvme_mmio_write(addr, data);
+    memset(&nvmet_bar, 0, sizeof(nvmet_bar));
+    nvmet_bar.type = VHOST_NVME_BAR_WRITE;
+    nvmet_bar.offset = addr;
+    nvmet_bar.size = size;
+    nvmet_bar.val = data;
+
+    ret = vhost_ops->vhost_nvme_bar(&n->dev, &nvmet_bar);
+    if (ret < 0)
+        error_report("IOCTL write_bar error = %d", ret);
 
     if (addr < sizeof(n->bar)) {
         nvme_write_bar(n, addr, data, size);
