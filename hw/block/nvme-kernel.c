@@ -190,12 +190,6 @@ static int vhost_dev_nvme_start(struct vhost_dev *hdev, VirtIODevice *vdev)
 //    }
 //    info_report("vhost_set_mem_table done");
 
-  if (vdev == NULL) {
-        error_report("vdev is null");
-//        return -1;
-    }
-
-    info_report("vhost_dev_start");
     //vhost_user_set_u64(dev, VHOST_USER_NVME_START_STOP, 1);
     if (hdev->vhost_ops->vhost_dev_start) {
         ret = hdev->vhost_ops->vhost_dev_start(hdev, true);
@@ -516,19 +510,22 @@ static uint16_t nvme_create_cq(NvmeCtrl *n, NvmeRequest *req)
     }
     nvme_set_eventfd(n, &cq->guest_notifier, cq->cqid, &cq->vector, &cq->irq_enabled);
 
-    /*
-     * It is only required to set qs_created when creating a completion queue;
-     * creating a submission queue without a matching completion queue will
-     * fail.
-     */
+
     n->qs_created = true;
     return NVME_SUCCESS;
 }
 
 static uint16_t nvme_admin_cmd(NvmeCtrl *n, NvmeRequest *req)
 {
+    const VhostOps *vhost_ops = n->dev.vhost_ops;
+    int ret = 0;
+
     trace_pci_nvme_admin_cmd(nvme_cid(req), nvme_sqid(req), req->cmd.opcode,
                              nvme_adm_opc_str(req->cmd.opcode));
+
+    ret = vhost_ops->vhost_nvme_admin_cmd(&n->dev, &req->cmd);
+    if (ret < 0)
+        error_report("Send IOCTL vhost_nvme_admin_cmd return error=[%d]", ret);
 
     switch (req->cmd.opcode) {
     case NVME_ADM_CMD_DELETE_SQ:
@@ -555,6 +552,7 @@ static uint16_t nvme_admin_cmd(NvmeCtrl *n, NvmeRequest *req)
         trace_pci_nvme_err_invalid_admin_opc(req->cmd.opcode);
         return NVME_INVALID_OPCODE | NVME_DNR;
     }
+    return ret;
 }
 
 static void nvme_process_sq(void *opaque)
@@ -594,11 +592,124 @@ static void nvme_process_sq(void *opaque)
     }
 }
 
+static int nvme_start_ctrl(NvmeCtrl *n)
+{
+    uint32_t page_bits = NVME_CC_MPS(n->bar.cc) + 12;
+    uint32_t page_size = 1 << page_bits;
+
+    if (unlikely(n->cq[0])) {
+        trace_pci_nvme_err_startfail_cq();
+        return -1;
+    }
+    if (unlikely(n->sq[0])) {
+        trace_pci_nvme_err_startfail_sq();
+        return -1;
+    }
+    if (unlikely(!n->bar.asq)) {
+        trace_pci_nvme_err_startfail_nbarasq();
+        return -1;
+    }
+    if (unlikely(!n->bar.acq)) {
+        trace_pci_nvme_err_startfail_nbaracq();
+        return -1;
+    }
+    if (unlikely(n->bar.asq & (page_size - 1))) {
+        trace_pci_nvme_err_startfail_asq_misaligned(n->bar.asq);
+        return -1;
+    }
+    if (unlikely(n->bar.acq & (page_size - 1))) {
+        trace_pci_nvme_err_startfail_acq_misaligned(n->bar.acq);
+        return -1;
+    }
+    if (unlikely(!(NVME_CAP_CSS(n->bar.cap) & (1 << NVME_CC_CSS(n->bar.cc))))) {
+        trace_pci_nvme_err_startfail_css(NVME_CC_CSS(n->bar.cc));
+        return -1;
+    }
+    if (unlikely(NVME_CC_MPS(n->bar.cc) <
+                 NVME_CAP_MPSMIN(n->bar.cap))) {
+        trace_pci_nvme_err_startfail_page_too_small(
+                    NVME_CC_MPS(n->bar.cc),
+                    NVME_CAP_MPSMIN(n->bar.cap));
+        return -1;
+    }
+    if (unlikely(NVME_CC_MPS(n->bar.cc) >
+                 NVME_CAP_MPSMAX(n->bar.cap))) {
+        trace_pci_nvme_err_startfail_page_too_large(
+                    NVME_CC_MPS(n->bar.cc),
+                    NVME_CAP_MPSMAX(n->bar.cap));
+        return -1;
+    }
+    if (unlikely(NVME_CC_IOCQES(n->bar.cc) <
+                 NVME_CTRL_CQES_MIN(n->id_ctrl.cqes))) {
+        trace_pci_nvme_err_startfail_cqent_too_small(
+                    NVME_CC_IOCQES(n->bar.cc),
+                    NVME_CTRL_CQES_MIN(n->bar.cap));
+        return -1;
+    }
+    if (unlikely(NVME_CC_IOCQES(n->bar.cc) >
+                 NVME_CTRL_CQES_MAX(n->id_ctrl.cqes))) {
+        trace_pci_nvme_err_startfail_cqent_too_large(
+                    NVME_CC_IOCQES(n->bar.cc),
+                    NVME_CTRL_CQES_MAX(n->bar.cap));
+        return -1;
+    }
+    if (unlikely(NVME_CC_IOSQES(n->bar.cc) <
+                 NVME_CTRL_SQES_MIN(n->id_ctrl.sqes))) {
+        trace_pci_nvme_err_startfail_sqent_too_small(
+                    NVME_CC_IOSQES(n->bar.cc),
+                    NVME_CTRL_SQES_MIN(n->bar.cap));
+        return -1;
+    }
+    if (unlikely(NVME_CC_IOSQES(n->bar.cc) >
+                 NVME_CTRL_SQES_MAX(n->id_ctrl.sqes))) {
+        trace_pci_nvme_err_startfail_sqent_too_large(
+                    NVME_CC_IOSQES(n->bar.cc),
+                    NVME_CTRL_SQES_MAX(n->bar.cap));
+        return -1;
+    }
+    if (unlikely(!NVME_AQA_ASQS(n->bar.aqa))) {
+        trace_pci_nvme_err_startfail_asqent_sz_zero();
+        return -1;
+    }
+    if (unlikely(!NVME_AQA_ACQS(n->bar.aqa))) {
+        trace_pci_nvme_err_startfail_acqent_sz_zero();
+        return -1;
+    }
+
+    n->page_bits = page_bits;
+    n->page_size = page_size;
+    n->max_prp_ents = n->page_size / sizeof(uint64_t);
+    n->cqe_size = 1 << NVME_CC_IOCQES(n->bar.cc);
+    n->sqe_size = 1 << NVME_CC_IOSQES(n->bar.cc);
+    nvme_init_cq(&n->admin_cq, n, n->bar.acq, 0, 0,
+                 NVME_AQA_ACQS(n->bar.aqa) + 1, 1);
+    nvme_init_sq(&n->admin_sq, n, n->bar.asq, 0, 0,
+                 NVME_AQA_ASQS(n->bar.aqa) + 1);
+
+    nvme_set_timestamp(n, 0ULL);
+
+    QTAILQ_INIT(&n->aer_queue);
+
+    return 0;
+}
+
 static void nvme_write_bar(NvmeCtrl *n, hwaddr offset, uint64_t data,
                            unsigned size)
 {
     hwaddr len;
     uint64_t expected_len;
+    const VhostOps *vhost_ops = n->dev.vhost_ops;
+    struct nvmet_vhost_bar nvmet_bar;
+    int ret = 0;
+
+    memset(&nvmet_bar, 0, sizeof(nvmet_bar));
+    nvmet_bar.type = VHOST_NVME_BAR_WRITE;
+    nvmet_bar.offset = offset;
+    nvmet_bar.size = size;
+    nvmet_bar.val = data;
+    ret = vhost_ops->vhost_nvme_bar(&n->dev, &nvmet_bar);
+    if (ret < 0)
+        error_report("IOCTL write_bar error = %d", ret);
 
     switch (offset) {
     case 0x14:  /* CC */
@@ -674,7 +785,6 @@ static void nvme_write_bar(NvmeCtrl *n, hwaddr offset, uint64_t data,
     default:
         break;
     }
-
 }
 
 static uint64_t nvme_mmio_read(void *opaque, hwaddr addr, unsigned size)
@@ -714,19 +824,18 @@ static void nvme_mmio_write(void *opaque, hwaddr addr, uint64_t data,
     int ret = 0;
 
     trace_pci_nvme_mmio_write(addr, data);
-    memset(&nvmet_bar, 0, sizeof(nvmet_bar));
-    nvmet_bar.type = VHOST_NVME_BAR_WRITE;
-    nvmet_bar.offset = addr;
-    nvmet_bar.size = size;
-    nvmet_bar.val = data;
-
-    ret = vhost_ops->vhost_nvme_bar(&n->dev, &nvmet_bar);
-    if (ret < 0)
-        error_report("IOCTL write_bar error = %d", ret);
 
     if (addr < sizeof(n->bar)) {
         nvme_write_bar(n, addr, data, size);
     } else {
+        memset(&nvmet_bar, 0, sizeof(nvmet_bar));
+        nvmet_bar.type = VHOST_NVME_BAR_WRITE;
+        nvmet_bar.offset = addr;
+        nvmet_bar.size = size;
+        nvmet_bar.val = data;
+        ret = vhost_ops->vhost_nvme_bar(&n->dev, &nvmet_bar);
+        if (ret < 0)
+            error_report("IOCTL nvme_process_db error = %d", ret);
         nvme_process_db(n, addr, data);
     }
 }

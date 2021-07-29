@@ -39,6 +39,7 @@ struct vhost_virtqueue;
 struct vhost_nvme_target;
 struct nvmet_vhost_eventfd;
 struct nvmet_vhost_bar;
+struct NvmeCmd;
 
 typedef int (*vhost_backend_init)(struct vhost_dev *dev, void *opaque);
 typedef int (*vhost_backend_cleanup)(struct vhost_dev *dev);
@@ -47,6 +48,7 @@ typedef int (*vhost_backend_memslots_limit)(struct vhost_dev *dev);
 typedef int (*vhost_nvme_set_endpoint_op)(struct vhost_dev *dev,
                                            struct vhost_nvme_target *target);
 typedef int (*vhost_nvme_start_ctrl_op)(struct vhost_dev *dev);
+typedef int (*vhost_nvme_admin_cmd_op)(struct vhost_dev *dev, struct NvmeCmd *cmd);
 typedef int (*vhost_nvme_clear_endpoint_op)(struct vhost_dev *dev,
                                            struct vhost_nvme_target *target);
 typedef int (*vhost_nvme_set_eventfd_op) (struct vhost_dev *dev,
@@ -146,6 +148,7 @@ typedef struct VhostOps {
     vhost_nvme_clear_endpoint_op vhost_nvme_clear_endpoint;
     vhost_nvme_set_eventfd_op vhost_nvme_set_eventfd;
     vhost_nvme_start_ctrl_op vhost_nvme_start_ctrl;
+    vhost_nvme_admin_cmd_op vhost_nvme_admin_cmd;
     vhost_nvme_bar_op vhost_nvme_bar;
     vhost_net_set_mtu_op vhost_net_set_mtu;
     vhost_scsi_set_endpoint_op vhost_scsi_set_endpoint;
