@@ -401,6 +401,7 @@ static void nvme_init_cq(NvmeCQueue *cq, NvmeCtrl *n, uint64_t dma_addr,
     cq->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, nvme_post_cqes, cq);
 }
 
+__attribute__((unused))
 static uint16_t nvme_create_sq(NvmeCtrl *n, NvmeRequest *req)
 {
     NvmeSQueue *sq;
@@ -440,6 +441,7 @@ static uint16_t nvme_create_sq(NvmeCtrl *n, NvmeRequest *req)
     return NVME_SUCCESS;
 }
 
+__attribute__((unused))
 static uint16_t nvme_create_cq(NvmeCtrl *n, NvmeRequest *req)
 {
     NvmeCQueue *cq;
@@ -523,10 +525,19 @@ static uint16_t nvme_admin_cmd(NvmeCtrl *n, NvmeRequest *req)
     trace_pci_nvme_admin_cmd(nvme_cid(req), nvme_sqid(req), req->cmd.opcode,
                              nvme_adm_opc_str(req->cmd.opcode));
 
-    ret = vhost_ops->vhost_nvme_admin_cmd(&n->dev, &req->cmd);
-    if (ret < 0)
-        error_report("Send IOCTL vhost_nvme_admin_cmd return error=[%d]", ret);
+    switch (req->cmd.opcode) {
+    case NVME_ADM_CMD_IDENTIFY:
+        return nvme_identify(n, req);
+    default:
+        ret = vhost_ops->vhost_nvme_admin_cmd(&n->dev, &req->cmd);
+        if (ret < 0)
+            error_report("Send IOCTL vhost_nvme_admin_cmd return error=[%d]", ret);
+        break;
+    }
 
+    return ret;
+
+#if 0
     switch (req->cmd.opcode) {
     case NVME_ADM_CMD_DELETE_SQ:
         return nvme_del_sq(n, req);
@@ -552,7 +563,7 @@ static uint16_t nvme_admin_cmd(NvmeCtrl *n, NvmeRequest *req)
         trace_pci_nvme_err_invalid_admin_opc(req->cmd.opcode);
         return NVME_INVALID_OPCODE | NVME_DNR;
     }
-    return ret;
+#endif
 }
 
 static void nvme_process_sq(void *opaque)
