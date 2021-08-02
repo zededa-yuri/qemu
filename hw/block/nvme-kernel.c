@@ -815,6 +815,14 @@ static uint64_t nvme_mmio_read(void *opaque, hwaddr addr, unsigned size)
     return nvmet_bar.val;
 }
 
+static uint32_t addr_to_qid(hwaddr addr)
+{
+    if (((addr - 0x1000) >> 2) & 1)
+        return (addr - (0x1000 + (1 << 2))) >> 3;
+    else
+        return (addr - 0x1000) >> 3;
+}
+
 static void nvme_mmio_write(void *opaque, hwaddr addr, uint64_t data,
                             unsigned size)
 {
@@ -833,10 +841,14 @@ static void nvme_mmio_write(void *opaque, hwaddr addr, uint64_t data,
         nvmet_bar.offset = addr;
         nvmet_bar.size = size;
         nvmet_bar.val = data;
-        ret = vhost_ops->vhost_nvme_bar(&n->dev, &nvmet_bar);
-        if (ret < 0)
-            error_report("IOCTL nvme_process_db error = %d", ret);
-        nvme_process_db(n, addr, data);
+
+        if (addr_to_qid(addr) != 0) {
+            ret = vhost_ops->vhost_nvme_bar(&n->dev, &nvmet_bar);
+            if (ret < 0)
+                error_report("IOCTL nvme_process_db error = %d", ret);
+        } else {
+            nvme_process_db(n, addr, data);
+        }
     }
 }
 
